@@ -105,7 +105,7 @@ var dragmate = function () {
      */
     this.setDroppable = function (d) {
         var l;
-        if (typeof d === "object") {
+        if (typeof d === "object" && d[0]) {
             l = d.length;
             while (l--) {
                 this.dropItemsSet = this.incDragDropItem(d[l], this.dropItems);
