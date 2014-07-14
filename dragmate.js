@@ -64,7 +64,7 @@ var dragmate = function () {
      *  functions provided.
      */
     this.drop = {
-        dropElem    : '',
+        dropElem    : false,
         endX        : 0,
         endY        : 0
     };
