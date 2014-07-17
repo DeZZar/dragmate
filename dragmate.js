@@ -1,5 +1,13 @@
-/*  Dragmate manages drag and drop functionality
- *  for standard browsers and touch devices
+/*  Copyright (c) 2014 Derrick Goostrey
+ *  Dragmate manages drag and drop functionality
+ *  for document elements. Use dragmate to
+ *  enable any document element/s to be dragged and
+ *  dropped onto other document elements.
+ *  Dragmate provides a framework to trigger
+ *  callback functions on drag start and drop
+ *  and will output the document element being dragged
+ *  the starting and end screen positions and the
+ *  document element that recieved a drop.
  */
 var dragmate = function () {
 
@@ -13,13 +21,39 @@ var dragmate = function () {
     this.dropItemsSet = false;
 
 
-    /*  Series of optional callback
-     *  functions triggered when
-     *  defined for this instance
+    /*  Dragmate events that callabck functions can be assigned to.
+     *
+     *  ondragstart. Event triggered once a valid draggable
+     *  element is moved for the first time. Only run once 
+     *  per drag. dragstartevt assigned true once callback is run
+    */
+    this.ondragstart = null;
+    this.dragstartevt = false;
+
+
+    /*  ondragmove. Event is triggered continuously during the
+     *  drag. Passed the window event, drag & drop objects.
+    */
+    this.ondragmove = null;
+
+
+    /*  ondragend. Event is triggered when a drag event ends
+     *  passed the window event, drag & drop objects.
      */
-    this.dragmateStart = '';
-    this.dragmateDrop = '';
-    this.ltCallback = '';
+    this.ondragend = null;
+
+
+    /*  ondrop. Event is only triggered when a draggable element
+     *  is released/dropped whilst within the bounds of a defined
+     *  droppable element.
+     */
+    this.ondrop = null;
+
+
+    /*  onlongtouch. Event is triggered when a long touch is
+     *  detected on a valid draggable element.
+     */
+    this.onlongtouch = null;
 
 
     /*  Properties set once a drag event
@@ -70,6 +104,20 @@ var dragmate = function () {
     };
 
 
+    /*  Dragmates drag event can optionally monitor
+     *  if the current drag position is directly over
+     *  a droppable element (within the outer bounds of
+     *  a droppable elements screen position).
+     *  This can be used to apply css styles to the
+     *  droppable element or to trigger the overdroppable
+     *  event if a callback is required.
+     *  By default this monitoring is disabled.
+     *  Note: If an implementation contains a large
+     *  number of droppable zones, monitoring for contact
+     *  with a droppable element may increase 
+     *  resource requirements
+     */
+    this.monitorOverDrop = false;
     this.dragOnEffect = "1px solid #1DACDA";
     this.dragOffEffect = "1px solid #CCCCCC";
 
@@ -105,7 +153,7 @@ var dragmate = function () {
      */
     this.setDroppable = function (d) {
         var l;
-        if (typeof d === "object" && d[0]) {
+        if (typeof d === "object") {
             l = d.length;
             while (l--) {
                 this.dropItemsSet = this.incDragDropItem(d[l], this.dropItems);
@@ -188,6 +236,10 @@ var dragmate = function () {
         var yd = y - me.drag.startY,
             xd = x - me.drag.startX;
 
+        /*  compare mouse/touch starting position with
+         *  current position. Apply difference to the copy
+         *  visual element for the current drag event
+         */
         me.drag.visElem.style.display = "block";
         me.drag.visElem.style.top = (me.drag.dragElemY + yd) + "px";
         me.drag.visElem.style.left = (me.drag.dragElemX + xd) + "px";
@@ -201,10 +253,24 @@ var dragmate = function () {
     function trackDrag(e) {
         var t, nY, nX;
         e = (!e) ? window.event : e;
+        /*  prevent default behaviour*/
         e.stopPropagation();
         e.preventDefault();
+
+        /*  once drag is detected, cancel the long
+         *  touch event
+         */
         me.ltCnl = true;
+        if (me.dragstartevt === false) {
+            me.dragstartevt = true;
+            /*  Run dragstart callback if defined */
+            if (me.ondragstart !== null) {
+                me.ondragstart(e, me.drag);
+            }
+        }
+
         if (e.targetTouches) {
+            /*  working with touch device*/
             t = e.targetTouches[0] || e.changedTouches[0];
             if (t.pageX !== 0 && t.pageY !== 0) {
                 nY = t.pageY;
@@ -216,9 +282,25 @@ var dragmate = function () {
                 nX = e.clientX;
             }
         }
+
+        /*  move the draggable element*/
         dragDraggable(nX, nY);
-        if (me.dropItemsSet === true) {
+
+        /*  track movement over droppable elements
+         *  if droppable elements have been defined
+         *  and drag monitoring is on.
+         */
+        if (me.dropItemsSet === true && me.monitorOverDrop === true) {
             overDropItem(nX, nY);
+        }
+
+        /*  run dragmove callback if defined
+         *  note: specifically called AFTER any overDropItem
+         *  monitoring if enabled to ensure drop object is
+         *  updated prior to passing to callback
+         */
+        if (me.ondragmove !== null) {
+            me.ondragmove(e, me.drag, me.drop);
         }
     }
 
@@ -232,23 +314,32 @@ var dragmate = function () {
      *  over a droppable element.
      */
     function overDropItem(x, y) {
-        var l = me.dropItems.length,
-            bnd, di = -1;
+        var l = me.dropItems.length, bnd, di = -1;
 
         while (l--) {
             bnd = me.dropItems[l].getBoundingClientRect();
+            /*  check the current screen position of the drag
+             *  is inside the boundaries of a droppable element
+             */
             if (y >= bnd.top && y <= (bnd.top + bnd.height)) {
                 if (x >= bnd.left && x <= (bnd.left + bnd.width)) {
                     di = l;
                 }
             }
         }
+        /*  apply visuals*/
         overDropEffect(di);
+
+        /*  assign the droppable element to the drop object*/
         me.drop.dropElem = (di === -1) ? false : me.dropItems[di];
+
+        /*  return the droppable element (or false)*/
         return me.drop.dropElem;
     }
 
-    /*  Applies a defined effect to a droppable element
+
+    /*  Applies border css to a droppable element within the
+     *  dropItems array as defined by the overDropItem method
      */
     function overDropEffect(i) {
         var l = me.dropItems.length;
@@ -269,7 +360,7 @@ var dragmate = function () {
      *  object and fires any drop callback if defined.
      */
     function dropDraggable(e) {
-        var t, nY, nX;
+        var t;
         e = (!e) ? window.event : e;
         if (e.type === "mouseup") {
             if (e.button !== 0) {
@@ -277,37 +368,63 @@ var dragmate = function () {
             }
         }
 
+        /*  restrict default behaviour*/
         e.stopPropagation();
         e.preventDefault();
         me.ltCnl = true;
 
+        /*  reset dragstart event firing*/
+        me.dragstartevt = false;
+
         if (e.targetTouches) {
+            /*  working with touch device*/
             t = e.targetTouches[0] || e.changedTouches[0];
+            /*  get the final screen position*/
             if (t.pageX !== 0 && t.pageY !== 0) {
-                nY = t.pageY;
-                nX = t.pageX;
+                me.drop.endX = t.pageX;
+                me.drop.endY = t.pageY;
             }
         } else {
             if (e.clientX !== 0 && e.clientY !== 0) {
-                nY = e.clientY;
-                nX = e.clientX;
+                /*  get the final screen position*/
+                me.drop.endX = e.clientX;
+                me.drop.endY = e.clientY;
             }
         }
 
-        overDropEffect(-1);
-        me.drop.endX = nX;
-        me.drop.endY = nY;
-
-        if (me.dragmateDrop !== '') {
-            me.dragmateDrop(e, me.drag, me.drop);
+        /*  If we're not already tracking the drag event
+         *  now check if the drop was over a droppable element
+         *  otherwise, we already have the drop co-ordinates
+         *  as the last drag movement
+         */
+        if (me.monitorOverDrop !== true) {
+            overDropItem(me.drop.endX, me.drop.endY);
         }
 
+        /*  remove any visual hover over drag zone effects*/
+        overDropEffect(-1);
+
+        /*  remove event handlers*/
         document.onmousemove = null;
         document.onmouseup = null;
         document.ontouchmove = null;
         document.ontouchend = null;
+        /*  remove copy visual element*/
         document.body.removeChild(me.drag.visElem);
+        /*  drag/drop no longer active*/
         me.dropActive = false;
+
+        /*  run drop callback function if defined and valid drop*/
+        if (me.drop.dropElem !== false) {
+            if (me.ondrop !== null) {
+                me.ondrop(e, me.drag, me.drop);
+            }
+        }
+
+        /*  run dragend callback if defined*/
+        if (me.ondragend !== null) {
+            me.ondragend(e, me.drag, me.drop);
+        }
     }
 
 
@@ -368,10 +485,13 @@ var dragmate = function () {
             cn = e.target.childNodes.length,
             sPos = e.target.getBoundingClientRect();
 
+        /*  assign draggable elements starting screen position*/
         me.drag.dragElemY = parseFloat(sPos.top, 10);
         me.drag.dragElemX = parseFloat(sPos.left, 10);
 
-        /* Copy styles to child nodes if present */
+        /*  Copy styles from the target nodes children
+         *  to the new copy nodes children if if present 
+         */
         if (cn > 0) {
             while (cn--) {
                 if (html.childNodes[cn].nodeName !== "#text") {
@@ -381,8 +501,10 @@ var dragmate = function () {
             }
         }
 
+        /*  Copy styles to the new copy element*/
         applyStyles(html, e.target);
 
+        /*  appy styles for visual control*/
         nd.style.position = "fixed";
         nd.style.opacity = "0.75";
         nd.style.pointerEvents = "none";
@@ -398,44 +520,58 @@ var dragmate = function () {
      *  clicked/touched
      */
     function gotDraggable(e) {
+        var lt, t;
         e = (!e) ? window.event : e;
         if (me.dropActive === true) {
+            /*  Cancel if a drag is already in progress */
             return;
         }
         if (e.type === "mousedown") {
+            /*  Only accept left click to begin a drag event */
             if (e.button !== 0) {
                 return;
             }
         }
+
+        /*  restrict default behaviours*/
         e.stopPropagation();
         e.preventDefault();
         me.ltCnl = false;
         lt = setTimeout(function () {
             if (me.ltCnl === false) {
+                /*  Wait half a second to
+                 *  to trigger long touch events
+                 */
                 touchLongpress(e);
             }
         }, 500);
 
         if (e.targetTouches) {
-            var t = e.targetTouches[0] || e.changedTouches[0];
+            /*  working with a touch device */
+            /*  assign the drag start screen position*/
+            t = e.targetTouches[0] || e.changedTouches[0];
             me.drag.startX = parseFloat(t.pageX, 10);
             me.drag.startY = parseFloat(t.pageY, 10);
+            /*  assign event listeners to document */
             document.ontouchmove = trackDrag;
             document.ontouchend = dropDraggable;
         } else {
+            /*  assign the drag start screen position*/
             me.drag.startX = parseFloat(e.clientX, 10);
             me.drag.startY = parseFloat(e.clientY, 10);
+            /*  assign event listeners to document */
             document.onmousemove = trackDrag;
             document.onmouseup = dropDraggable;
         }
 
+        /*  Create a duplicate of the draggable element
+         *  and assign it to the drag object
+         */
         me.drag.visElem = createDragElem(e);
         me.drag.dragID = e.target.id;
         me.drag.dragElem = e.target;
 
-        if (me.dragmateStart !== '') {
-            me.dragmateStart(e);
-        }
+        /*  Drop active is now true*/
         me.dropActive = true;
     }
 
@@ -448,22 +584,10 @@ var dragmate = function () {
     function touchLongpress(e) {
         e = (!e) ? window.event : e;
         if (e.targetTouches) {
-            if (me.ltCallback !== '') {
-                me.ltCallback(e, me.ltCnl);
+            if (me.onlongtouch !== null) {
+                me.onlongtouch(e, me.ltCnl);
             }
             return;
         }
     }
-
-
-    /*  Prints the list of draggable elements
-     *  to the console for debugging
-     */
-    this.showDraggable = function () {
-        var l = this.dragItems.length;
-        while (l--) {
-            console.log(this.dragItems[l]);
-        }
-    };
-
 };
